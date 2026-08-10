@@ -153,10 +153,15 @@ enum DemoFixtures {
         )]
     }
 
-    /// Three fixed collections, three hours apart, ending at the reference
-    /// date. They exercise every part of the timeline interface: a shrinking
-    /// system volume, a report family that recurs across all three collections,
-    /// and an evidence source that becomes unavailable and then recovers.
+    /// Six fixed collections ending at the reference date.
+    ///
+    /// They exercise every part of the timeline interface: a system volume that
+    /// mostly shrinks but recovers once, a report family that recurs across all
+    /// of them, an evidence source that becomes unavailable and then recovers,
+    /// and — deliberately — one collection in which the system volume was never
+    /// read. That last one is the case worth demonstrating: its interval is
+    /// reported as *not comparable*, not as a flat line, and the bar for it is
+    /// drawn as an outline rather than as zero free space.
     static func timelineEntries() -> [SnapshotSummary] {
         let recurring = ReportGroupSummary(
             applicationIdentity: "bundle:com.example.northstar",
@@ -167,19 +172,24 @@ enum DemoFixtures {
             count: 2,
             mostRecentAt: referenceDate.addingTimeInterval(-6 * 3_600)
         )
-        let definitions: [(offsetHours: Int, availableGibibytes: Int64, groups: [ReportGroupSummary], unavailable: [String], severities: [String: Int])] = [
+        func recurringGroup(count: Int, offsetHours: Int) -> ReportGroupSummary {
+            ReportGroupSummary(
+                applicationIdentity: recurring.applicationIdentity,
+                applicationName: recurring.applicationName,
+                bundleIdentifier: recurring.bundleIdentifier,
+                signature: recurring.signature,
+                kind: .crash,
+                count: count,
+                mostRecentAt: referenceDate.addingTimeInterval(TimeInterval(offsetHours * 3_600))
+            )
+        }
+
+        let definitions: [(offsetHours: Int, availableGibibytes: Int64?, groups: [ReportGroupSummary], unavailable: [String], severities: [String: Int])] = [
+            (-30, 29, [recurringGroup(count: 1, offsetHours: -30)], [], ["informational": 1]),
+            (-24, 34, [recurringGroup(count: 2, offsetHours: -24)], [], ["notice": 1, "informational": 1]),
+            (-18, nil, [recurringGroup(count: 2, offsetHours: -18)], ["Mounted local volumes"], ["notice": 2, "informational": 1]),
             (-6, 21, [recurring], [], ["notice": 1, "informational": 1]),
-            (-3, 14, [
-                ReportGroupSummary(
-                    applicationIdentity: recurring.applicationIdentity,
-                    applicationName: recurring.applicationName,
-                    bundleIdentifier: recurring.bundleIdentifier,
-                    signature: recurring.signature,
-                    kind: .crash,
-                    count: 4,
-                    mostRecentAt: referenceDate.addingTimeInterval(-3 * 3_600)
-                )
-            ], ["System-wide diagnostic reports"], ["warning": 1, "notice": 2]),
+            (-3, 14, [recurringGroup(count: 4, offsetHours: -3)], ["System-wide diagnostic reports"], ["warning": 1, "notice": 2]),
             (0, 8, snapshot().crashGroups.map(ReportGroupSummary.init(group:)), ["System-wide diagnostic reports"], ["critical": 1, "warning": 1, "notice": 2])
         ]
 
@@ -187,13 +197,15 @@ enum DemoFixtures {
             SnapshotSummary(
                 id: fixtureUUID(200 + index),
                 collectedAt: referenceDate.addingTimeInterval(TimeInterval(definition.offsetHours * 3_600)),
-                volumes: [VolumeSummary(
-                    name: demoVolume.name,
-                    mountPath: demoVolume.mountPath,
-                    totalBytes: demoVolume.totalBytes,
-                    availableBytes: definition.availableGibibytes * StorageHeadroomPolicy.gibibyte,
-                    isInternal: true
-                )],
+                volumes: definition.availableGibibytes.map { available in
+                    [VolumeSummary(
+                        name: demoVolume.name,
+                        mountPath: demoVolume.mountPath,
+                        totalBytes: demoVolume.totalBytes,
+                        availableBytes: available * StorageHeadroomPolicy.gibibyte,
+                        isInternal: true
+                    )]
+                } ?? [],
                 memory: MemorySummary(memory: demoMemory),
                 reportGroups: definition.groups,
                 unavailableSources: definition.unavailable,

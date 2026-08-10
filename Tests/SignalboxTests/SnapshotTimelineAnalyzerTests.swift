@@ -143,6 +143,109 @@ final class SnapshotTimelineAnalyzerTests: XCTestCase {
         XCTAssertEqual(finding.severity, .notice, "A usage notice is not a failure, however often it repeats.")
     }
 
+    // MARK: - Comparing any two collections
+
+    func testComparingTwoChosenCollectionsIgnoresTheOrderTheyWerePicked() {
+        let older = entry(offsetHours: -6, availableGibibytes: 40, reportCount: 1)
+        let newer = entry(offsetHours: 0, availableGibibytes: 22, reportCount: 5)
+
+        let forward = SnapshotTimelineAnalyzer.delta(from: older, to: newer)
+        let backward = SnapshotTimelineAnalyzer.delta(from: newer, to: older)
+
+        XCTAssertEqual(
+            forward,
+            backward,
+            "Click order must never flip the sign of a change the user is trying to read."
+        )
+        XCTAssertEqual(forward.systemVolumeAvailableByteChange, -18 * StorageHeadroomPolicy.gibibyte)
+        XCTAssertEqual(forward.reportCountChange, 4)
+        XCTAssertEqual(forward.previousCollectedAt, older.collectedAt)
+    }
+
+    func testComparingDistantCollectionsSkipsEverythingBetweenThem() {
+        let entries = [
+            entry(offsetHours: -6, availableGibibytes: 40),
+            entry(offsetHours: -3, availableGibibytes: 5),
+            entry(offsetHours: 0, availableGibibytes: 38)
+        ]
+
+        let delta = SnapshotTimelineAnalyzer.delta(from: entries[0], to: entries[2])
+
+        XCTAssertEqual(delta.systemVolumeAvailableByteChange, -2 * StorageHeadroomPolicy.gibibyte)
+    }
+
+    // MARK: - Capacity trend
+
+    func testCapacityTrendCountsMovementsBetweenConsecutiveCollections() throws {
+        let entries = [
+            entry(offsetHours: -8, availableGibibytes: 30),
+            entry(offsetHours: -6, availableGibibytes: 40),
+            entry(offsetHours: -4, availableGibibytes: 40),
+            entry(offsetHours: -2, availableGibibytes: 25),
+            entry(offsetHours: 0, availableGibibytes: 20)
+        ]
+
+        let trend = try XCTUnwrap(SnapshotTimelineAnalyzer.capacityTrend(in: entries))
+
+        XCTAssertEqual(trend.readingCount, 5)
+        XCTAssertEqual(trend.risingIntervalCount, 1)
+        XCTAssertEqual(trend.unchangedIntervalCount, 1)
+        XCTAssertEqual(trend.fallingIntervalCount, 2)
+        XCTAssertEqual(trend.comparableIntervalCount, 4)
+        XCTAssertEqual(trend.notComparableIntervalCount, 0)
+        XCTAssertEqual(trend.lowestReading.availableBytes, 20 * StorageHeadroomPolicy.gibibyte)
+        XCTAssertEqual(trend.highestReading.availableBytes, 40 * StorageHeadroomPolicy.gibibyte)
+        XCTAssertEqual(trend.netChangeBytes, -10 * StorageHeadroomPolicy.gibibyte)
+    }
+
+    func testAnUnreadVolumeMakesAnIntervalNotComparableRatherThanUnchanged() throws {
+        let entries = [
+            entry(offsetHours: -4, availableGibibytes: 30),
+            entry(offsetHours: -2, hasSystemVolume: false),
+            entry(offsetHours: 0, availableGibibytes: 30)
+        ]
+
+        let trend = try XCTUnwrap(SnapshotTimelineAnalyzer.capacityTrend(in: entries))
+
+        XCTAssertEqual(trend.readingCount, 2)
+        XCTAssertEqual(trend.notComparableIntervalCount, 2)
+        XCTAssertEqual(
+            trend.comparableIntervalCount,
+            0,
+            "A collection that never read the volume must not manufacture an unchanged interval."
+        )
+        XCTAssertEqual(trend.netChangeBytes, 0, "The two readings that do exist are still comparable to each other.")
+    }
+
+    func testCapacityTrendNeedsTwoActualReadings() {
+        XCTAssertNil(SnapshotTimelineAnalyzer.capacityTrend(in: []))
+        XCTAssertNil(
+            SnapshotTimelineAnalyzer.capacityTrend(in: [entry(offsetHours: 0)]),
+            "One reading is a measurement, not a movement."
+        )
+        XCTAssertNil(
+            SnapshotTimelineAnalyzer.capacityTrend(in: [
+                entry(offsetHours: -2, hasSystemVolume: false),
+                entry(offsetHours: 0, availableGibibytes: 10)
+            ]),
+            "A single reading beside an unread collection is still one reading."
+        )
+    }
+
+    func testCapacityTrendIsOrderIndependentAndUsesCollectionTime() throws {
+        let entries = [
+            entry(offsetHours: 0, availableGibibytes: 10),
+            entry(offsetHours: -4, availableGibibytes: 30),
+            entry(offsetHours: -2, availableGibibytes: 20)
+        ]
+
+        let trend = try XCTUnwrap(SnapshotTimelineAnalyzer.capacityTrend(in: entries))
+
+        XCTAssertEqual(trend.firstReading.availableBytes, 30 * StorageHeadroomPolicy.gibibyte)
+        XCTAssertEqual(trend.latestReading.availableBytes, 10 * StorageHeadroomPolicy.gibibyte)
+        XCTAssertEqual(trend.fallingIntervalCount, 2)
+    }
+
     // MARK: - Fixtures
 
     private func entry(
@@ -151,17 +254,18 @@ final class SnapshotTimelineAnalyzerTests: XCTestCase {
         reportCount: Int = 2,
         signature: String = "EXC_BAD_ACCESS · SIGSEGV",
         kind: DiagnosticReportKind = .crash,
-        unavailableSources: [String] = []
+        unavailableSources: [String] = [],
+        hasSystemVolume: Bool = true
     ) -> SnapshotSummary {
         SnapshotSummary(
             collectedAt: referenceDate.addingTimeInterval(TimeInterval(offsetHours * 3_600)),
-            volumes: [VolumeSummary(
+            volumes: hasSystemVolume ? [VolumeSummary(
                 name: "Macintosh HD",
                 mountPath: "/",
                 totalBytes: 500 * StorageHeadroomPolicy.gibibyte,
                 availableBytes: availableGibibytes * StorageHeadroomPolicy.gibibyte,
                 isInternal: true
-            )],
+            )] : [],
             memory: MemorySummary(memory: DemoFixtures.demoMemory),
             reportGroups: [ReportGroupSummary(
                 applicationIdentity: "bundle:com.example.northstar",

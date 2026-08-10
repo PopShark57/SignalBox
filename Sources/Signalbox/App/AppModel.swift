@@ -3,6 +3,7 @@ import Foundation
 
 enum SidebarDestination: String, CaseIterable, Identifiable {
     case overview
+    case history
     case applications
     case repairHistory
     case settings
@@ -12,6 +13,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .overview: "Overview"
+        case .history: "History"
         case .applications: "Apps"
         case .repairHistory: "Repair History"
         case .settings: "Settings"
@@ -21,6 +23,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .overview: "rectangle.grid.2x2"
+        case .history: "chart.line.uptrend.xyaxis"
         case .applications: "app.dashed"
         case .repairHistory: "clock.arrow.circlepath"
         case .settings: "gearshape"
@@ -74,6 +77,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var timeline: [SnapshotSummary] = []
     @Published private(set) var snapshotDelta: SnapshotDelta?
     @Published private(set) var recurrences: [ReportRecurrence] = []
+    @Published private(set) var capacityTrend: CapacityTrend?
+    /// The collections the reader has picked to compare on the History screen,
+    /// in the order they were picked. At most two are ever held.
+    @Published private(set) var historySelectedIDs: [UUID] = []
     /// Why the timeline is empty, when the reason is a failure rather than a
     /// first run. Shown in place of the timeline, never as a modal alert.
     @Published private(set) var timelineUnavailableReason: String?
@@ -181,11 +188,88 @@ final class AppModel: ObservableObject {
                         entryCount: timeline.count,
                         earliestCollectedAt: timeline.first?.collectedAt,
                         delta: snapshotDelta,
-                        recurrences: recurrences
+                        recurrences: recurrences,
+                        capacityTrend: capacityTrend
                     )
                     : nil,
                 snapshotWasRequestedButUnavailable: reportIncludesSnapshot && snapshot == nil
             )
+        )
+    }
+
+    /// The recorded collections newest-first, which is the order the History
+    /// screen reads in: the most recent collection is the one being explained.
+    var historyEntries: [SnapshotSummary] {
+        Array(timeline.reversed())
+    }
+
+    /// The comparison between the two collections the reader picked, or nil
+    /// until exactly two are selected.
+    ///
+    /// The analyzer orders them by collection time, so picking newest-then-
+    /// oldest describes the same change as oldest-then-newest.
+    var comparisonDelta: SnapshotDelta? {
+        guard historySelectedIDs.count == 2 else { return nil }
+        let selected = timeline.filter { historySelectedIDs.contains($0.id) }
+        guard selected.count == 2 else { return nil }
+        return SnapshotTimelineAnalyzer.delta(from: selected[0], to: selected[1])
+    }
+
+    /// The recorded timeline as CSV, using the same reduced summaries the
+    /// History screen shows. Nothing is read from disk to produce it.
+    var timelineCSV: String {
+        dependencies.timelineCSVExporter.csv(for: timeline)
+    }
+
+    func isSelectedForComparison(_ summary: SnapshotSummary) -> Bool {
+        historySelectedIDs.contains(summary.id)
+    }
+
+    /// Selecting a third collection releases the oldest selection rather than
+    /// refusing the click, so comparing a run of collections stays a single
+    /// gesture.
+    func toggleHistorySelection(_ summary: SnapshotSummary) {
+        if let index = historySelectedIDs.firstIndex(of: summary.id) {
+            historySelectedIDs.remove(at: index)
+            return
+        }
+        historySelectedIDs.append(summary.id)
+        if historySelectedIDs.count > 2 {
+            historySelectedIDs.removeFirst()
+        }
+    }
+
+    func clearHistorySelection() {
+        historySelectedIDs = []
+    }
+
+    func timelineCSVExported(to url: URL) {
+        issue = AppIssue(
+            title: "Snapshot timeline exported",
+            message: "Saved \(url.lastPathComponent). It holds the same reduced summaries Signalbox stores: no report signatures, and no record of which apps were open."
+        )
+    }
+
+    func timelineCSVExportFailed(_ error: Error) {
+        issue = AppIssue(title: "Snapshot timeline could not be exported", message: error.localizedDescription)
+    }
+
+    func timelineCSVCopied() {
+        issue = AppIssue(
+            title: "Snapshot timeline copied",
+            message: "The clipboard now holds the same CSV that Export writes."
+        )
+    }
+
+    /// The recovery procedure for one transaction, with its own paths filled in.
+    func manualRecoverySteps(for manifest: BackupManifest) -> String {
+        ManualRecoveryWriter().plainText(for: manifest)
+    }
+
+    func manualRecoveryStepsCopied(for manifest: BackupManifest) {
+        issue = AppIssue(
+            title: "Recovery steps copied",
+            message: "The clipboard holds the manual steps for \(manifest.targetApplicationName). Every step is a move; none of them deletes anything."
         )
     }
 
@@ -284,6 +368,8 @@ final class AppModel: ObservableObject {
         timeline = []
         snapshotDelta = nil
         recurrences = []
+        capacityTrend = nil
+        historySelectedIDs = []
         timelineUnavailableReason = nil
         await refresh()
     }
@@ -300,11 +386,20 @@ final class AppModel: ObservableObject {
             timeline = entries
             snapshotDelta = SnapshotTimelineAnalyzer.delta(for: entries)
             recurrences = SnapshotTimelineAnalyzer.recurrences(in: entries)
+            capacityTrend = SnapshotTimelineAnalyzer.capacityTrend(in: entries)
             timelineUnavailableReason = nil
+            // The archive is bounded, so a collection the reader had selected
+            // for comparison can fall off the end. Dropping the stale
+            // identifier keeps the comparison card from silently describing a
+            // pair that no longer exists.
+            let recordedIDs = Set(entries.map(\.id))
+            historySelectedIDs.removeAll { !recordedIDs.contains($0) }
         } catch {
             timeline = []
             snapshotDelta = nil
             recurrences = []
+            capacityTrend = nil
+            historySelectedIDs = []
             timelineUnavailableReason = error.localizedDescription
         }
     }
@@ -318,6 +413,8 @@ final class AppModel: ObservableObject {
             timeline = []
             snapshotDelta = nil
             recurrences = []
+            capacityTrend = nil
+            historySelectedIDs = []
             timelineUnavailableReason = nil
             issue = AppIssue(
                 title: "Snapshot history cleared",

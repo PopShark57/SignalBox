@@ -13,8 +13,19 @@ enum SnapshotTimelineAnalyzer {
     static func delta(for entries: [SnapshotSummary]) -> SnapshotDelta? {
         let ordered = entries.sorted { $0.collectedAt < $1.collectedAt }
         guard ordered.count >= 2 else { return nil }
-        let previous = ordered[ordered.count - 2]
-        let current = ordered[ordered.count - 1]
+        return delta(from: ordered[ordered.count - 2], to: ordered[ordered.count - 1])
+    }
+
+    /// Compares any two recorded collections.
+    ///
+    /// The two are ordered by collection time here rather than by argument
+    /// position, so picking them from a list in either order always describes
+    /// the same change in the same direction. A user comparing "January" with
+    /// "March" means the same thing as "March" with "January", and reversing
+    /// the sign because of click order would be a lie about the Mac.
+    static func delta(from first: SnapshotSummary, to second: SnapshotSummary) -> SnapshotDelta {
+        let previous = first.collectedAt <= second.collectedAt ? first : second
+        let current = first.collectedAt <= second.collectedAt ? second : first
 
         // Only report a capacity change when both collections actually saw the
         // system volume. A missing reading is unknown, not zero.
@@ -38,6 +49,67 @@ enum SnapshotTimelineAnalyzer {
             reportCountChange: totalReportCount(current) - totalReportCount(previous),
             newlyUnavailableSources: currentSources.subtracting(previousSources).sorted(),
             resolvedUnavailableSources: previousSources.subtracting(currentSources).sorted()
+        )
+    }
+
+    /// Counts how the system volume's available capacity moved across every
+    /// recorded collection.
+    ///
+    /// Returns nil unless at least two collections actually read the system
+    /// volume: a single reading is a measurement, not a movement.
+    ///
+    /// Intervals are classified pairwise over consecutive collections. When
+    /// either end of an interval has no reading the interval is counted as not
+    /// comparable and is never silently treated as "unchanged" — the whole
+    /// point of recording unavailable evidence is that absence is not a value.
+    static func capacityTrend(in entries: [SnapshotSummary]) -> CapacityTrend? {
+        let ordered = entries.sorted { $0.collectedAt < $1.collectedAt }
+        let readings: [CapacityReading] = ordered.compactMap { entry in
+            guard let volume = entry.systemVolume else { return nil }
+            return CapacityReading(
+                collectedAt: entry.collectedAt,
+                availableBytes: volume.availableBytes,
+                totalBytes: volume.totalBytes
+            )
+        }
+        guard let first = readings.first,
+              let latest = readings.last,
+              readings.count >= 2 else {
+            return nil
+        }
+
+        var falling = 0
+        var rising = 0
+        var unchanged = 0
+        var notComparable = 0
+        for index in 1..<ordered.count {
+            guard let earlier = ordered[index - 1].systemVolume?.availableBytes,
+                  let later = ordered[index].systemVolume?.availableBytes else {
+                notComparable += 1
+                continue
+            }
+            if later < earlier {
+                falling += 1
+            } else if later > earlier {
+                rising += 1
+            } else {
+                unchanged += 1
+            }
+        }
+
+        let difference = latest.availableBytes.subtractingReportingOverflow(first.availableBytes)
+
+        return CapacityTrend(
+            readingCount: readings.count,
+            fallingIntervalCount: falling,
+            risingIntervalCount: rising,
+            unchangedIntervalCount: unchanged,
+            notComparableIntervalCount: notComparable,
+            firstReading: first,
+            latestReading: latest,
+            lowestReading: readings.min { $0.availableBytes < $1.availableBytes } ?? first,
+            highestReading: readings.max { $0.availableBytes < $1.availableBytes } ?? first,
+            netChangeBytes: difference.overflow ? nil : difference.partialValue
         )
     }
 

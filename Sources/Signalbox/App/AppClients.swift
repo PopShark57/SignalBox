@@ -82,6 +82,7 @@ struct SignalboxDependencies {
     let demoTimeline: SignalboxTimelineClient
     let applications: SignalboxApplicationClient
     let reportExporter: any ReportExporting
+    let timelineCSVExporter: any TimelineCSVExporting
     let clock: @Sendable () -> Date
     let defaults: UserDefaults
     let processInfo: ProcessInfo

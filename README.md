@@ -86,6 +86,21 @@ open Build/Signalbox.app --args --demo
 
 `Scripts/build-app.sh` creates `Build/Signalbox.app`, applies an ad-hoc Hardened Runtime signature, verifies it, and leaves App Sandbox disabled. A real distribution build should use the developer's signing identity and notarization workflow.
 
+## Application icon
+
+The icon is a railway signal head: a dark housing carrying three aspects, of which exactly one is lit. It names the application, and it matches what the application does — report one honest aspect from the evidence actually available, rather than a score summed across everything.
+
+`Resources/AppIcon.icns` is committed, so an ordinary build needs nothing extra. It is generated from `Design/GenerateAppIcon.swift`, which draws the artwork with Core Graphics and no third-party dependency, so the icon is reproducible from source rather than an opaque binary. Sizes at or below 64px are drawn from a heavier variant — larger lenses, more contrast, no glow — because a soft glow becomes grey mud once a lamp is three pixels wide.
+
+Regenerate it only when the design changes:
+
+```sh
+chmod +x Scripts/build-icon.sh
+Scripts/build-icon.sh
+```
+
+`Scripts/verify.sh` fails if the packaged bundle is missing the `.icns` file named by `CFBundleIconFile`, because a bundle missing its icon falls back to the generic application icon silently.
+
 ## Architecture
 
 Signalbox keeps collection, interpretation, repair execution, persistence, export, and presentation separate:
@@ -189,7 +204,7 @@ Automated filesystem tests use unique temporary directories. They do not inspect
 
 The suite covers storage thresholds, report grouping and language, report-family classification and discarding, mocks, recipe matching, root/traversal/symlink enforcement, metadata revalidation, manifest round trips, partial transactions, restore success, restore conflicts, declined conflicts leaving the manifest unchanged, timeline persistence/bounding/schema rejection, timeline delta and recurrence analysis, host-context collection and non-identification, and home-path redaction.
 
-`Scripts/verify.sh` additionally fails the build on any compiler warning, greps `Sources` for prohibited constructs (networking, privilege escalation, forced termination, permanent deletion), lints the packaged `Info.plist`, and rejects a bundle containing a symbolic link.
+`Scripts/verify.sh` additionally fails the build on any compiler warning, greps `Sources` for prohibited constructs (networking, privilege escalation, forced termination, permanent deletion), lints the packaged `Info.plist`, rejects a bundle containing a symbolic link, and confirms the bundle carries the icon its `Info.plist` names.
 
 Before release, also smoke-test both live and `--demo` modes on a supported macOS installation with a stable Xcode toolchain, keyboard navigation, VoiceOver, light mode, and dark mode.
 

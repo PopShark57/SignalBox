@@ -8,6 +8,8 @@
     <string>Signalbox</string>
     <key>CFBundleExecutable</key>
     <string>Signalbox</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>app.signalbox.macos</string>
     <key>CFBundleInfoDictionaryVersion</key>

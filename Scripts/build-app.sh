@@ -15,6 +15,7 @@ BIN_DIR=$(swift build --configuration "$CONFIGURATION" --show-bin-path)
 /bin/rm -rf "$APP_DIR"
 /bin/mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
 /bin/cp "$PROJECT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
+/bin/cp "$PROJECT_DIR/Resources/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
 /bin/cp "$BIN_DIR/Signalbox" "$CONTENTS_DIR/MacOS/Signalbox"
 
 RESOURCE_BUNDLE="$BIN_DIR/Signalbox_Signalbox.bundle"

@@ -40,6 +40,14 @@ APP_DIR="$PROJECT_DIR/Build/Signalbox.app"
 /usr/bin/plutil -lint "$APP_DIR/Contents/Info.plist"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 
+# The Info.plist names an icon file; a bundle missing it falls back to the
+# generic application icon silently, which is easy to ship without noticing.
+ICON_NAME=$(/usr/bin/plutil -extract CFBundleIconFile raw -o - "$APP_DIR/Contents/Info.plist")
+if [[ ! -f "$APP_DIR/Contents/Resources/$ICON_NAME.icns" ]]; then
+    print "verify: the bundle does not contain Resources/$ICON_NAME.icns" >&2
+    exit 1
+fi
+
 # A symlink inside the bundle would be signed but could be repointed later.
 if /usr/bin/find "$APP_DIR" -type l | /usr/bin/grep -q .; then
     print "verify: the application bundle contains a symbolic link" >&2

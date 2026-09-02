@@ -15,9 +15,24 @@ struct ReportTimelineSection: Sendable, Equatable {
     let earliestCollectedAt: Date?
     let delta: SnapshotDelta?
     let recurrences: [ReportRecurrence]
+    let capacityTrend: CapacityTrend?
+
+    init(
+        entryCount: Int,
+        earliestCollectedAt: Date?,
+        delta: SnapshotDelta?,
+        recurrences: [ReportRecurrence],
+        capacityTrend: CapacityTrend? = nil
+    ) {
+        self.entryCount = entryCount
+        self.earliestCollectedAt = earliestCollectedAt
+        self.delta = delta
+        self.recurrences = recurrences
+        self.capacityTrend = capacityTrend
+    }
 
     var isEmpty: Bool {
-        entryCount == 0 && delta == nil && recurrences.isEmpty
+        entryCount == 0 && delta == nil && recurrences.isEmpty && capacityTrend == nil
     }
 }
 
@@ -271,6 +286,29 @@ struct ReportExporter: ReportExporting, Sendable {
             lines.append("Only one collection has been recorded, so there is nothing to compare yet.")
         }
         lines.append("")
+
+        if let trend = timeline.capacityTrend {
+            lines.append("### System-Volume Capacity Across Collections")
+            lines.append("")
+            lines.append(safe(CapacityTrend.samplingCaveat, limit: 400))
+            lines.append("")
+            lines.append("- Collections that read the system volume: \(trend.readingCount)")
+            lines.append("- Intervals where available capacity fell: \(trend.fallingIntervalCount) of \(trend.comparableIntervalCount) comparable")
+            lines.append("- Intervals where it rose: \(trend.risingIntervalCount); unchanged: \(trend.unchangedIntervalCount)")
+            if trend.notComparableIntervalCount > 0 {
+                lines.append("- Intervals that could not be compared, because a collection did not read the system volume: \(trend.notComparableIntervalCount)")
+            }
+            lines.append("- First reading: \(bytes(trend.firstReading.availableBytes)) available on \(date(trend.firstReading.collectedAt))")
+            lines.append("- Latest reading: \(bytes(trend.latestReading.availableBytes)) available on \(date(trend.latestReading.collectedAt))")
+            lines.append("- Lowest reading: \(bytes(trend.lowestReading.availableBytes)) on \(date(trend.lowestReading.collectedAt))")
+            lines.append("- Highest reading: \(bytes(trend.highestReading.availableBytes)) on \(date(trend.highestReading.collectedAt))")
+            if let net = trend.netChangeBytes {
+                lines.append("- First to latest: \(signedBytes(net)), over \(duration(trend.observedSpan)) of recorded collections")
+            } else {
+                lines.append("- First to latest: not comparable, because the stored readings could not be subtracted")
+            }
+            lines.append("")
+        }
 
         lines.append("### Recurring Across Collections")
         lines.append("")

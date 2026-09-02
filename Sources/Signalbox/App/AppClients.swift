@@ -38,7 +38,7 @@ struct SignalboxTimelineClient: Sendable {
         )
     }
 
-    /// A fixed, plausible three-collection history so demo mode can exercise
+    /// A fixed, plausible six-collection history so demo mode can exercise
     /// the delta and recurrence interface without inventing a live timeline.
     static func demo() -> SignalboxTimelineClient {
         let entries = DemoFixtures.timelineEntries()
@@ -82,6 +82,7 @@ struct SignalboxDependencies {
     let demoTimeline: SignalboxTimelineClient
     let applications: SignalboxApplicationClient
     let reportExporter: any ReportExporting
+    let timelineCSVExporter: any TimelineCSVExporting
     let clock: @Sendable () -> Date
     let defaults: UserDefaults
     let processInfo: ProcessInfo

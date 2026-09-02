@@ -195,11 +195,63 @@ struct SnapshotDelta: Hashable, Sendable {
     }
 
     /// True when nothing Signalbox tracks moved between the two collections.
+    /// A missing system-volume reading is unknown, not zero, so it is never
+    /// treated as unchanged.
     var isUnchanged: Bool {
-        (systemVolumeAvailableByteChange ?? 0) == 0
+        systemVolumeAvailableByteChange == 0
             && reportCountChange == 0
             && newlyUnavailableSources.isEmpty
             && resolvedUnavailableSources.isEmpty
+    }
+}
+
+/// One system-volume capacity reading taken from a recorded collection.
+struct CapacityReading: Hashable, Sendable {
+    let collectedAt: Date
+    let availableBytes: Int64
+    let totalBytes: Int64
+}
+
+/// How the system volume's available capacity moved across the recorded
+/// collections.
+///
+/// This is a count of observed movements, never a rate and never a projection.
+/// Signalbox is refreshed by hand, so the gaps between collections are
+/// arbitrary: "fell in four of five intervals" says nothing about how fast it
+/// fell, and nothing about what happens next. Deriving GB-per-day from
+/// unevenly spaced, user-triggered samples would be exactly the kind of
+/// confident-sounding number this application exists to avoid.
+///
+/// An interval whose two collections did not both read the system volume is
+/// counted as *not comparable*. It is never folded into "unchanged", because a
+/// missing reading is unknown, not zero.
+struct CapacityTrend: Hashable, Sendable {
+    /// The canonical caveat. Both the interface and the exported report use
+    /// this exact sentence, so the two can never drift apart.
+    static let samplingCaveat = "Collections are triggered by hand, so these intervals are not evenly spaced. This counts observed movements; it is not a rate of change and not a prediction."
+
+    /// Collections that carried a system-volume reading.
+    let readingCount: Int
+    let fallingIntervalCount: Int
+    let risingIntervalCount: Int
+    let unchangedIntervalCount: Int
+    /// Intervals where at least one of the two collections did not read the
+    /// system volume.
+    let notComparableIntervalCount: Int
+    let firstReading: CapacityReading
+    let latestReading: CapacityReading
+    let lowestReading: CapacityReading
+    let highestReading: CapacityReading
+    /// Latest reading minus the first, or nil if that subtraction would
+    /// overflow because the archive holds implausible values.
+    let netChangeBytes: Int64?
+
+    var comparableIntervalCount: Int {
+        fallingIntervalCount + risingIntervalCount + unchangedIntervalCount
+    }
+
+    var observedSpan: TimeInterval {
+        latestReading.collectedAt.timeIntervalSince(firstReading.collectedAt)
     }
 }
 

@@ -173,6 +173,83 @@ final class ReportExporterTests: XCTestCase {
         XCTAssertFalse(report.contains("No report sections were selected."))
     }
 
+    func testCapacityTrendIsExportedAsCountedObservationsAndNeverAsARate() {
+        let report = ReportExporter(homeDirectory: home).markdown(
+            for: ReportExportPayload(
+                generatedAt: date,
+                snapshot: nil,
+                timeline: ReportTimelineSection(
+                    entryCount: 5,
+                    earliestCollectedAt: date.addingTimeInterval(-14_400),
+                    delta: nil,
+                    recurrences: [],
+                    capacityTrend: CapacityTrend(
+                        readingCount: 4,
+                        fallingIntervalCount: 2,
+                        risingIntervalCount: 1,
+                        unchangedIntervalCount: 0,
+                        notComparableIntervalCount: 1,
+                        firstReading: reading(offsetSeconds: -14_400, gibibytes: 30),
+                        latestReading: reading(offsetSeconds: 0, gibibytes: 20),
+                        lowestReading: reading(offsetSeconds: 0, gibibytes: 20),
+                        highestReading: reading(offsetSeconds: -10_800, gibibytes: 34),
+                        netChangeBytes: -10 * StorageHeadroomPolicy.gibibyte
+                    )
+                )
+            )
+        )
+
+        XCTAssertTrue(report.contains("### System-Volume Capacity Across Collections"))
+        XCTAssertTrue(report.contains("Intervals where available capacity fell: 2 of 3 comparable"))
+        XCTAssertTrue(report.contains("could not be compared, because a collection did not read the system volume: 1"))
+        XCTAssertTrue(report.contains("- First to latest: −10.0 GiB"))
+        XCTAssertTrue(
+            report.contains("not a rate of change and not a prediction"),
+            "The sampling caveat travels with the numbers, or the numbers become a trend line."
+        )
+        XCTAssertFalse(report.contains("per day"))
+        XCTAssertFalse(report.contains("will reach"))
+    }
+
+    func testATimelineHoldingOnlyACapacityTrendIsStillAnExportedSection() {
+        let report = ReportExporter(homeDirectory: home).markdown(
+            for: ReportExportPayload(
+                generatedAt: date,
+                snapshot: nil,
+                timeline: ReportTimelineSection(
+                    entryCount: 0,
+                    earliestCollectedAt: nil,
+                    delta: nil,
+                    recurrences: [],
+                    capacityTrend: CapacityTrend(
+                        readingCount: 2,
+                        fallingIntervalCount: 1,
+                        risingIntervalCount: 0,
+                        unchangedIntervalCount: 0,
+                        notComparableIntervalCount: 0,
+                        firstReading: reading(offsetSeconds: -3_600, gibibytes: 30),
+                        latestReading: reading(offsetSeconds: 0, gibibytes: 20),
+                        lowestReading: reading(offsetSeconds: 0, gibibytes: 20),
+                        highestReading: reading(offsetSeconds: -3_600, gibibytes: 30),
+                        netChangeBytes: nil
+                    )
+                )
+            )
+        )
+
+        XCTAssertTrue(report.contains("### System-Volume Capacity Across Collections"))
+        XCTAssertTrue(report.contains("- First to latest: not comparable"))
+        XCTAssertFalse(report.contains("No report sections were selected."))
+    }
+
+    private func reading(offsetSeconds: TimeInterval, gibibytes: Int64) -> CapacityReading {
+        CapacityReading(
+            collectedAt: date.addingTimeInterval(offsetSeconds),
+            availableBytes: gibibytes * StorageHeadroomPolicy.gibibyte,
+            totalBytes: 500 * StorageHeadroomPolicy.gibibyte
+        )
+    }
+
     func testTimelineWithASingleCollectionSaysThereIsNothingToCompare() {
         let report = ReportExporter(homeDirectory: home).markdown(
             for: ReportExportPayload(

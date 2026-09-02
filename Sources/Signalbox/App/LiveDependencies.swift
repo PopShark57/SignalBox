@@ -104,6 +104,7 @@ extension SignalboxDependencies {
             demoTimeline: .demo(),
             applications: .workspace,
             reportExporter: ReportExporter(),
+            timelineCSVExporter: TimelineCSVExporter(),
             clock: { Date() },
             defaults: .standard,
             processInfo: .processInfo

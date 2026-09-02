@@ -38,7 +38,7 @@ struct SignalboxTimelineClient: Sendable {
         )
     }
 
-    /// A fixed, plausible three-collection history so demo mode can exercise
+    /// A fixed, plausible six-collection history so demo mode can exercise
     /// the delta and recurrence interface without inventing a live timeline.
     static func demo() -> SignalboxTimelineClient {
         let entries = DemoFixtures.timelineEntries()

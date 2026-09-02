@@ -58,6 +58,23 @@ final class SnapshotTimelineAnalyzerTests: XCTestCase {
         )
     }
 
+    func testMissingSystemVolumeIsNeverReportedAsUnchanged() throws {
+        // Same reports and sources — only capacity is unread on both sides.
+        let previous = entry(offsetHours: -3, reportCount: 2, hasSystemVolume: false)
+        let current = entry(offsetHours: 0, reportCount: 2, hasSystemVolume: false)
+
+        let delta = try XCTUnwrap(SnapshotTimelineAnalyzer.delta(for: [previous, current]))
+
+        XCTAssertNil(delta.systemVolumeAvailableByteChange)
+        XCTAssertEqual(delta.reportCountChange, 0)
+        XCTAssertTrue(delta.newlyUnavailableSources.isEmpty)
+        XCTAssertTrue(delta.resolvedUnavailableSources.isEmpty)
+        XCTAssertFalse(
+            delta.isUnchanged,
+            "An unread volume is unknown, not zero; isUnchanged must not invent that nothing moved."
+        )
+    }
+
     func testDeltaTracksSourcesBecomingUnavailableAndRecovering() throws {
         let previous = entry(offsetHours: -3, unavailableSources: ["Recent diagnostic reports"])
         let current = entry(offsetHours: 0, unavailableSources: ["macOS running applications"])

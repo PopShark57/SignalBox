@@ -195,8 +195,10 @@ struct SnapshotDelta: Hashable, Sendable {
     }
 
     /// True when nothing Signalbox tracks moved between the two collections.
+    /// A missing system-volume reading is unknown, not zero, so it is never
+    /// treated as unchanged.
     var isUnchanged: Bool {
-        (systemVolumeAvailableByteChange ?? 0) == 0
+        systemVolumeAvailableByteChange == 0
             && reportCountChange == 0
             && newlyUnavailableSources.isEmpty
             && resolvedUnavailableSources.isEmpty
